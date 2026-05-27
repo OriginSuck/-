@@ -1,0 +1,529 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>我的个人知识图谱系统</title>
+    <!-- 引入 Tailwind CSS 进行极简 UI 布局 -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- 引入 Vis.js 用于绘制动态网络拓扑图 -->
+    <script type="text/javascript" src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
+    <!-- 引入 Phosphor Icons 作为图标 -->
+    <script src="https://unpkg.com/@phosphor-icons/web"></script>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            /* 干净清透的蔚蓝色渐变背景 */
+            background: radial-gradient(circle at center, #ffffff 0%, #f0f8ff 70%, #e0f2fe 100%);
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+        }
+        /* 知识图谱层 */
+        #mynetwork {
+            width: 100vw;
+            height: 100vh;
+            position: absolute;
+            top: 0;
+            left: 0;
+            z-index: 10;
+        }
+        /* 自定义浅色滚动条 */
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: #f8fafc; }
+        ::-webkit-scrollbar-thumb { background: #93c5fd; border-radius: 10px; }
+        ::-webkit-scrollbar-thumb:hover { background: #3b82f6; }
+        
+        select {
+            appearance: none;
+            background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%233b82f6' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e");
+            background-repeat: no-repeat;
+            background-position: right 0.7rem top 50%;
+            background-size: 1rem auto;
+        }
+    </style>
+</head>
+<body>
+
+    <!-- 知识图谱容器 -->
+    <div id="mynetwork"></div>
+
+    <!-- 顶部体系管理栏 (白底高对比拟态 UI) -->
+    <div class="absolute top-4 left-4 z-20 bg-white/90 backdrop-blur-md px-5 py-3 rounded-2xl shadow-[0_8px_30px_rgba(59,130,246,0.12)] border border-blue-100 flex flex-col gap-3 min-w-[320px]">
+        <div class="flex items-center gap-3 border-b border-slate-100 pb-2">
+            <i class="ph-fill ph-graphql text-3xl text-blue-600"></i>
+            <div>
+                <h1 class="text-lg font-bold text-slate-800 tracking-wide">个人知识云图库</h1>
+                <p class="text-[10px] text-blue-500 font-medium">数据自动保存在本地浏览器</p>
+            </div>
+        </div>
+        
+        <div class="flex items-center gap-2">
+            <!-- 体系切换下拉框 -->
+            <select id="system-selector" onchange="switchSystem()" class="flex-1 bg-slate-50 border border-blue-100 text-slate-700 text-sm rounded-xl focus:ring-blue-500 focus:border-blue-500 block p-2 pr-8 outline-none font-bold transition-colors hover:bg-blue-50 cursor-pointer">
+                <!-- 动态生成体系选项 -->
+            </select>
+            
+            <!-- 新建与删除体系按钮 -->
+            <button onclick="createNewSystem()" class="p-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl transition-colors shadow-md" title="新建知识体系">
+                <i class="ph-bold ph-plus"></i>
+            </button>
+            <button onclick="deleteCurrentSystem()" class="p-2 bg-red-50 hover:bg-red-100 text-red-500 rounded-xl transition-colors border border-red-100" title="删除当前体系">
+                <i class="ph-bold ph-trash"></i>
+            </button>
+        </div>
+    </div>
+
+    <!-- 右侧详情与操作面板 -->
+    <div id="side-panel" class="absolute top-4 right-4 z-20 w-80 bg-white/95 backdrop-blur-xl rounded-2xl shadow-[0_20px_40px_rgba(0,0,0,0.08)] border border-blue-100 transition-transform duration-300 transform translate-x-[120%] flex flex-col max-h-[95vh]">
+        <!-- 面板头部 -->
+        <div class="p-5 border-b border-blue-50 flex justify-between items-start bg-blue-600 rounded-t-2xl shadow-inner">
+            <div class="flex-1 pr-2">
+                <p class="text-blue-100 text-[10px] font-semibold mb-1 uppercase tracking-wider">节点编辑器</p>
+                <!-- 节点名称变为可编辑的输入框 -->
+                <input type="text" id="node-label-input" onchange="updateNodeLabel()" class="w-full bg-blue-700/40 text-white text-lg font-bold border border-transparent hover:border-blue-300 focus:border-white focus:bg-blue-700 rounded px-2 py-1 outline-none transition-colors" value="节点名称">
+            </div>
+            <button onclick="closePanel()" class="text-blue-200 hover:text-white transition-colors p-1 mt-1 bg-blue-800/30 rounded-lg">
+                <i class="ph-bold ph-x text-lg"></i>
+            </button>
+        </div>
+
+        <!-- 面板操作区 -->
+        <div class="p-5 flex-1 overflow-y-auto">
+            <!-- 节点结构操作 -->
+            <div class="flex gap-2 mb-6">
+                <button onclick="addChildNode()" class="flex-1 flex items-center justify-center gap-2 bg-blue-50 hover:bg-blue-100 text-blue-700 py-2.5 px-3 rounded-xl text-sm font-bold transition-colors border border-blue-200 shadow-sm">
+                    <i class="ph-bold ph-git-branch"></i> 衍生新分支
+                </button>
+                <button onclick="deleteCurrentNode()" class="flex items-center justify-center bg-red-50 hover:bg-red-100 text-red-600 py-2.5 px-3 rounded-xl text-sm font-bold transition-colors border border-red-200 shadow-sm" title="删除该节点及子节点">
+                    <i class="ph-bold ph-trash"></i>
+                </button>
+            </div>
+
+            <!-- 文件管理区 -->
+            <div class="mt-2">
+                <div class="flex items-center justify-between mb-3">
+                    <h3 class="text-sm font-bold text-slate-800 flex items-center gap-2">
+                        <i class="ph-fill ph-folder-open text-blue-500 text-lg"></i> 挂载资料记录
+                    </h3>
+                    <span id="file-count" class="bg-blue-100 text-blue-800 text-xs font-bold px-2 py-0.5 rounded-full">0</span>
+                </div>
+                
+                <ul id="file-list" class="space-y-2 mb-4"></ul>
+
+                <input type="file" id="file-upload-input" class="hidden" multiple onchange="handleFileUpload(event)">
+                <button onclick="document.getElementById('file-upload-input').click()" class="w-full flex items-center justify-center gap-2 border-2 border-dashed border-blue-300 hover:border-blue-500 bg-slate-50 hover:bg-blue-50 text-blue-600 py-3 rounded-xl text-sm font-bold transition-all group">
+                    <i class="ph-bold ph-upload-simple text-lg group-hover:-translate-y-1 transition-transform"></i> 上传文件关联
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 底部状态栏 -->
+    <div class="absolute bottom-4 left-4 z-20 flex gap-2">
+        <div class="bg-white/90 backdrop-blur-md px-4 py-2 rounded-full shadow-md border border-blue-100 text-xs text-slate-600 font-bold flex gap-4">
+            <span><i class="ph-bold ph-cursor-click mr-1 text-blue-500"></i> 单击节点编辑</span>
+            <span><i class="ph-bold ph-arrows-out-cardinal mr-1 text-blue-500"></i> 拖拽体验物理摇曳</span>
+        </div>
+        <button onclick="network.fit({animation: {duration: 800, easingFunction: 'easeInOutQuad'}})" class="bg-blue-50 hover:bg-blue-100 px-3 py-2 rounded-full shadow-md border border-blue-200 text-xs text-blue-700 font-bold transition-colors backdrop-blur-md">
+            <i class="ph-bold ph-corners-out"></i> 居中视图
+        </button>
+    </div>
+
+    <script>
+        // === 0.5 动态生成适合白底的通透 3D 水晶球 SVG ===
+        function get3DSphereSVG(baseColor, highlightColor, darkColor) {
+            const svg = `
+            <svg xmlns="http://www.w3.org/2000/svg" width="120" height="120" viewBox="0 0 120 120">
+                <defs>
+                    <radialGradient id="grad" cx="35%" cy="30%" r="65%">
+                        <stop offset="0%" stop-color="#ffffff" />  <!-- 顶部强高光 -->
+                        <stop offset="25%" stop-color="${highlightColor}" /> <!-- 过渡色 -->
+                        <stop offset="70%" stop-color="${baseColor}" /> <!-- 核心主色调 -->
+                        <stop offset="100%" stop-color="${darkColor}" /> <!-- 底部阴影收边 -->
+                    </radialGradient>
+                    <!-- 玻璃质感反光贴片 -->
+                    <linearGradient id="glass" x1="0%" y1="0%" x2="0%" y2="100%">
+                        <stop offset="0%" stop-color="#ffffff" stop-opacity="0.6"/>
+                        <stop offset="100%" stop-color="#ffffff" stop-opacity="0.0"/>
+                    </linearGradient>
+                </defs>
+                
+                <!-- 主球体外轮廓阴影由 vis.js 负责，这里画球的本体 -->
+                <circle cx="60" cy="60" r="54" fill="url(#grad)" stroke="${darkColor}" stroke-width="1.5" stroke-opacity="0.4"/>
+                
+                <!-- 顶部弧形玻璃高光贴片，增加通透感 -->
+                <ellipse cx="60" cy="28" rx="35" ry="16" fill="url(#glass)" />
+            </svg>`;
+            return "data:image/svg+xml;charset=utf-8," + encodeURIComponent(svg);
+        }
+
+        // === 1. 数据结构与本地存储逻辑 ===
+        const STORAGE_KEY = 'my_personal_knowledge_graphs';
+        
+        const defaultDatabase = {
+            "sys_geotech": {
+                name: "示例：岩土工程体系",
+                nodes: [
+                    { id: 1, label: "湿化变形机理", group: "root", value: 45 },
+                    { id: 2, label: "试验探测", group: "level1", value: 30 },
+                    { id: 3, label: "力学本构", group: "level1", value: 30 },
+                    { id: 4, label: "双线法缺陷", group: "level2", value: 20 },
+                    { id: 5, label: "微观孔隙比", group: "level2", value: 20 },
+                    { id: 6, label: "修正 Rowe 模型", group: "level2", value: 20 }
+                ],
+                edges: [
+                    { id: "e1", from: 1, to: 2 }, { id: "e2", from: 1, to: 3 },
+                    { id: "e3", from: 2, to: 4 }, { id: "e4", from: 2, to: 5 },
+                    { id: "e5", from: 3, to: 6 }, { id: "e6", from: 5, to: 6, dashes: true }
+                ],
+                files: {}
+            }
+        };
+
+        let database = {};
+        let currentSysId = null;
+        let currentNodeId = null;
+        
+        let nodes = new vis.DataSet();
+        let edges = new vis.DataSet();
+        let network = null;
+
+        function initData() {
+            const savedData = localStorage.getItem(STORAGE_KEY);
+            if (savedData) {
+                try {
+                    database = JSON.parse(savedData);
+                    if (Object.keys(database).length === 0) throw new Error("Empty DB");
+                } catch (e) {
+                    database = JSON.parse(JSON.stringify(defaultDatabase));
+                }
+            } else {
+                database = JSON.parse(JSON.stringify(defaultDatabase));
+            }
+            saveToLocal();
+        }
+
+        function saveToLocal() {
+            if (currentSysId && database[currentSysId]) {
+                database[currentSysId].nodes = nodes.get();
+                database[currentSysId].edges = edges.get();
+            }
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(database));
+        }
+
+        function updateSystemSelector() {
+            const selector = document.getElementById('system-selector');
+            selector.innerHTML = '';
+            for (const [sysId, sysData] of Object.entries(database)) {
+                const option = document.createElement('option');
+                option.value = sysId;
+                option.text = sysData.name;
+                selector.appendChild(option);
+            }
+            if (currentSysId) {
+                selector.value = currentSysId;
+            } else {
+                selector.value = Object.keys(database)[0];
+                switchSystem(selector.value);
+            }
+        }
+
+        function switchSystem(forceSysId = null) {
+            const sysId = forceSysId || document.getElementById('system-selector').value;
+            if (!database[sysId]) return;
+            
+            if(currentSysId) saveToLocal();
+
+            currentSysId = sysId;
+            document.getElementById('system-selector').value = sysId;
+            
+            nodes.clear();
+            edges.clear();
+            nodes.add(database[sysId].nodes);
+            edges.add(database[sysId].edges);
+            
+            closePanel();
+            if(network) network.fit();
+        }
+
+        function createNewSystem() {
+            const sysName = prompt("请输入新知识体系的名称：", "我的新知识库");
+            if (!sysName || sysName.trim() === "") return;
+
+            const newSysId = "sys_" + new Date().getTime();
+            database[newSysId] = {
+                name: sysName.trim(),
+                nodes: [{ id: 1, label: sysName.trim() + " (核心)", group: "root", value: 45 }],
+                edges: [],
+                files: {}
+            };
+            
+            saveToLocal();
+            updateSystemSelector();
+            switchSystem(newSysId);
+        }
+
+        function deleteCurrentSystem() {
+            const sysKeys = Object.keys(database);
+            if (sysKeys.length <= 1) {
+                alert("这是最后一个体系，无法删除！");
+                return;
+            }
+            if (confirm(`确定要删除整个体系【${database[currentSysId].name}】吗？`)) {
+                delete database[currentSysId];
+                currentSysId = null;
+                saveToLocal();
+                updateSystemSelector();
+                switchSystem(Object.keys(database)[0]);
+            }
+        }
+
+        // === 4. Vis.js 图谱初始化 (深度摇曳力学 & 高对比字体配置) ===
+        // 用于制造全图持续呼吸波动的计时器
+        let swayTime = 0; 
+        
+        function initNetwork() {
+            let container = document.getElementById('mynetwork');
+            let data = { nodes: nodes, edges: edges };
+            
+            let options = {
+                nodes: {
+                    shape: 'image', // 采用 3D 水晶球渲染
+                    scaling: { min: 20, max: 60 },
+                    font: { 
+                        face: 'system-ui', 
+                        color: '#0f172a', // 极其突出的深灰/海军蓝色，防混淆
+                        size: 15,
+                        strokeWidth: 3,   // 关键：白底页面必备的纯白粗描边，保证文字永远悬浮于背景之上
+                        strokeColor: '#ffffff',
+                        vadjust: -6       // 微调文字到球体下方舒适的位置
+                    },
+                    shadow: { enabled: true, color: 'rgba(59, 130, 246, 0.3)', size: 15, x: 0, y: 8 }, // 柔和底阴影
+                },
+                edges: {
+                    width: 2,
+                    color: { color: '#93c5fd', highlight: '#3b82f6', hover: '#60a5fa' }, // 亮蓝色连线
+                    smooth: { type: 'continuous' },
+                },
+                groups: {
+                    // 映射浅色系的 3D 水晶球颜色参数 (Base, Highlight, DarkEdge)
+                    root: { 
+                        image: get3DSphereSVG('#2563eb', '#93c5fd', '#1e3a8a'), // 亮晶蓝
+                        font: { size: 18, color: '#1e3a8a' }
+                    },
+                    level1: { 
+                        image: get3DSphereSVG('#3b82f6', '#bfdbfe', '#1d4ed8'), // 清水蓝
+                        font: { size: 16 }
+                    },
+                    level2: { 
+                        image: get3DSphereSVG('#60a5fa', '#e0f2fe', '#2563eb'), // 浅冰蓝
+                        font: { size: 14 }
+                    }
+                },
+                physics: {
+                    // 【核心配置：打造拖拽时的水母摇曳感】
+                    forceAtlas2Based: {
+                        gravitationalConstant: -120, // 更强的排斥力拉开距离
+                        centralGravity: 0.003,       // 极弱的向心力，让网络铺散开
+                        springLength: 160,           // 长连线
+                        springConstant: 0.02,        // [极软的弹簧]：让拖拽时产生拉扯拉长效果
+                        damping: 0.15                // [极低的阻尼]：在水中滑行，移动后会摇曳缓冲很久
+                    },
+                    maxVelocity: 40,
+                    minVelocity: 0.1, // 降低完全静止的阈值，让它保持微小的活力
+                    solver: 'forceAtlas2Based',
+                    timestep: 0.25,
+                    stabilization: { iterations: 100 } // 初始排版稍微快点，之后全靠拖拽摇曳
+                },
+                interaction: { hover: true, tooltipDelay: 200, zoomView: true, dragView: true }
+            };
+
+            network = new vis.Network(container, data, options);
+
+            // 【黑科技：全局轻微呼吸扰动】
+            // 让所有的节点即使你不碰它，也会像在水中一样有非常轻微的上下起伏
+            network.on("beforeDrawing", function(ctx) {
+                swayTime += 0.02;
+                let positions = network.getPositions();
+                
+                // 给根对象底布加一点点极淡的光晕（可选），增加立体空间感
+                for (let nodeId in positions) {
+                    let pos = positions[nodeId];
+                    let node = nodes.get(nodeId);
+                    if(!node) continue;
+                    
+                    // 利用 nodeId 错开频率，让大家起伏不一样
+                    let phase = parseInt(nodeId) * 0.8; 
+                    
+                    // 通过修改 ctx 的原点在视觉层面上微微扰动 (不打断物理引擎运算)
+                    let swayY = Math.sin(swayTime + phase) * 2.5; // 上下轻微摇曳振幅
+                    
+                    // 仅绘制一个跟随球体微弱晃动的极淡蓝色投影在下方
+                    ctx.beginPath();
+                    ctx.arc(pos.x, pos.y + (node.value||20) + swayY, (node.value||20)*0.6, 0, 2*Math.PI);
+                    ctx.fillStyle = 'rgba(147, 197, 253, 0.05)';
+                    ctx.fill();
+                }
+            });
+
+            // 保持动画帧刷新以支持微小光晕波动
+            const animateSway = () => {
+                network.redraw();
+                requestAnimationFrame(animateSway);
+            };
+            animateSway();
+
+            // 事件绑定
+            network.on("selectNode", function (params) {
+                currentNodeId = params.nodes[0];
+                openPanel();
+            });
+
+            network.on("deselectNode", function () {
+                currentNodeId = null;
+                saveToLocal();
+                closePanel();
+            });
+            
+            network.on("dragEnd", function(params) {
+                saveToLocal();
+            });
+        }
+
+        // === 5. 节点与面板交互 ===
+        function openPanel() {
+            if (!currentNodeId) return;
+            const node = nodes.get(currentNodeId);
+            document.getElementById('node-label-input').value = node.label;
+            document.getElementById('side-panel').classList.remove('translate-x-[120%]');
+            renderFileList();
+        }
+
+        function closePanel() {
+            document.getElementById('side-panel').classList.add('translate-x-[120%]');
+        }
+
+        function updateNodeLabel() {
+            if (!currentNodeId) return;
+            const newLabel = document.getElementById('node-label-input').value.trim();
+            if (newLabel) {
+                nodes.update({ id: currentNodeId, label: newLabel });
+                saveToLocal();
+            }
+        }
+
+        function addChildNode() {
+            if (!currentNodeId) return;
+            const newId = new Date().getTime();
+            
+            const parentNode = nodes.get(currentNodeId);
+            let targetGroup = 'level2';
+            let targetValue = 20;
+            if (parentNode.group === 'root') { targetGroup = 'level1'; targetValue = 30; }
+            else if (parentNode.group === 'level1') { targetGroup = 'level2'; targetValue = 20; }
+
+            nodes.add({ id: newId, label: "新建派生点", group: targetGroup, value: targetValue });
+            edges.add({ id: "e_" + newId, from: currentNodeId, to: newId });
+            
+            saveToLocal();
+            
+            network.focus(newId, { scale: 1, animation: { duration: 500, easingFunction: 'easeInOutQuad' } });
+            network.selectNodes([newId]);
+            currentNodeId = newId;
+            openPanel();
+        }
+
+        function deleteCurrentNode() {
+            if (!currentNodeId) return;
+            if (nodes.length <= 1) {
+                alert("这是体系中的最后一个节点，无法删除！");
+                return;
+            }
+            if (confirm("确定要彻底删除该节点及其衍生网络吗？")) {
+                nodes.remove(currentNodeId);
+                if(database[currentSysId].files[currentNodeId]) {
+                    delete database[currentSysId].files[currentNodeId];
+                }
+                saveToLocal();
+                closePanel();
+            }
+        }
+
+        // === 6. 文件记录功能 ===
+        function handleFileUpload(event) {
+            if (!currentNodeId) return;
+            const files = event.target.files;
+            if (files.length === 0) return;
+
+            let sysFiles = database[currentSysId].files;
+            if (!sysFiles[currentNodeId]) sysFiles[currentNodeId] = [];
+
+            for (let i = 0; i < files.length; i++) {
+                const file = files[i];
+                sysFiles[currentNodeId].push({
+                    name: file.name,
+                    size: (file.size / 1024 / 1024).toFixed(2) + " MB",
+                    date: new Date().toLocaleDateString()
+                });
+            }
+            
+            event.target.value = '';
+            saveToLocal();
+            renderFileList();
+        }
+
+        function renderFileList() {
+            const listEl = document.getElementById('file-list');
+            const countEl = document.getElementById('file-count');
+            listEl.innerHTML = '';
+
+            const files = database[currentSysId].files[currentNodeId] || [];
+            countEl.innerText = files.length;
+
+            if (files.length === 0) {
+                listEl.innerHTML = '<li class="text-xs text-slate-400 italic text-center py-4 bg-slate-50 rounded-xl border border-dashed border-slate-200">当前节点尚未关联文件记录</li>';
+                return;
+            }
+
+            files.forEach((file, index) => {
+                const li = document.createElement('li');
+                li.className = "flex items-center justify-between bg-white p-3 rounded-xl border border-slate-100 shadow-sm group hover:border-blue-300 transition-colors";
+                
+                let iconClass = "ph-fill ph-file-text text-blue-400";
+                if(file.name.toLowerCase().endsWith('.pdf')) iconClass = "ph-fill ph-file-pdf text-red-500";
+                else if(file.name.toLowerCase().endsWith('.jpg') || file.name.toLowerCase().endsWith('.png')) iconClass = "ph-fill ph-file-image text-emerald-500";
+
+                li.innerHTML = `
+                    <div class="flex items-center gap-3 overflow-hidden">
+                        <i class="${iconClass} text-2xl flex-shrink-0"></i>
+                        <div class="overflow-hidden">
+                            <p class="text-sm font-bold text-slate-700 truncate" title="${file.name}">${file.name}</p>
+                            <p class="text-[10px] text-slate-400 font-medium">${file.date} · ${file.size}</p>
+                        </div>
+                    </div>
+                    <button onclick="removeFile(${index})" class="text-slate-300 hover:text-red-500 p-1 rounded transition-colors" title="移除记录">
+                        <i class="ph-bold ph-x"></i>
+                    </button>
+                `;
+                listEl.appendChild(li);
+            });
+        }
+
+        function removeFile(index) {
+            if (!currentNodeId || !database[currentSysId].files[currentNodeId]) return;
+            database[currentSysId].files[currentNodeId].splice(index, 1);
+            saveToLocal();
+            renderFileList();
+        }
+
+        // === 启动流程 ===
+        window.onload = () => {
+            initData();
+            initNetwork();
+            updateSystemSelector();
+        };
+
+    </script>
+</body>
+</html>
